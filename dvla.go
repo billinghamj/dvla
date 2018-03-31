@@ -10,6 +10,10 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+const confirmVehicleURI = "https://vehicleenquiry.service.gov.uk/ConfirmVehicle"
+const viewVehicleURI = "https://vehicleenquiry.service.gov.uk/ViewVehicle"
+const viewVehicleFormAction = "/ViewVehicle"
+
 type viewVehicleParams struct {
 	viewstate, Vrm, Make, Colour, Correct, Continue string
 }
@@ -19,14 +23,11 @@ type VehicleDetails struct {
 	Registration, Make, Taxed, DateRegistered, YearOfManufacture, CylinderCapacity, CO2Emissions, FuelType, ExportMarker, TaxStatus, TaxDue, Colour, Wheelplan, Weight string
 }
 
-// make the first request to the DVLA to get a session state and confirm the registration
-func initialLookup(reg string) (viewVehicleParams, error) {
-	var lookupURI = "https://vehicleenquiry.service.gov.uk/ConfirmVehicle"
-	var params = viewVehicleParams{Correct: "False", Continue: ""}
-
+// make the first request to the DVLA to get an HTML form for the next step
+func initialLookup(reg string) (*goquery.Document, error) {
 	// make the request to the DVLA service
 	response, err := http.PostForm(
-		lookupURI,
+		confirmVehicleURI,
 		url.Values{
 			"Vrm":      {reg},
 			"Continue": {""},
@@ -38,10 +39,12 @@ func initialLookup(reg string) (viewVehicleParams, error) {
 	defer response.Body.Close()
 
 	// Create a goquery document from the HTTP response
-	document, err := goquery.NewDocumentFromReader(response.Body)
-	if err != nil {
-		log.Fatal("Error loading HTTP response body. ", err)
-	}
+	return goquery.NewDocumentFromReader(response.Body)
+}
+
+// parse the ConfirmVehicle form for the parameters for the next stage
+func getViewVehicleParamsFromPage(document *goquery.Document) (viewVehicleParams, error) {
+	var params = viewVehicleParams{Correct: "False", Continue: ""}
 
 	// find the form element in the returned HTML
 	forms := document.Find("form")
@@ -51,7 +54,7 @@ func initialLookup(reg string) (viewVehicleParams, error) {
 		form := forms.Eq(f)
 		// look for the form with the target action
 		action, exists := form.Attr("action")
-		if exists && action == "/ViewVehicle" {
+		if exists && action == viewVehicleFormAction {
 			inputs := form.Find("input")
 			// iterate through all the form inputs
 			for i := range inputs.Nodes {
@@ -160,11 +163,9 @@ func getVehicleDetailsFromPage(element *goquery.Selection) VehicleDetails {
 	return details
 }
 
-func viewVehicle(params viewVehicleParams) VehicleDetails {
-	var lookupURI = "https://vehicleenquiry.service.gov.uk/ViewVehicle"
-
+func secondaryLookup(params viewVehicleParams) (*goquery.Document, error) {
 	response, err := http.PostForm(
-		lookupURI,
+		viewVehicleURI,
 		url.Values{
 			"viewstate": {params.viewstate},
 			"Vrm":       {params.Vrm},
@@ -179,12 +180,10 @@ func viewVehicle(params viewVehicleParams) VehicleDetails {
 	}
 	defer response.Body.Close()
 
-	// Create a goquery document from the HTTP response
-	document, err := goquery.NewDocumentFromReader(response.Body)
-	if err != nil {
-		log.Fatal("Error loading HTTP response body. ", err)
-	}
+	return goquery.NewDocumentFromReader(response.Body)
+}
 
+func getVehicleDataFromPage(document *goquery.Document) VehicleDetails {
 	main := document.Find("main")
 
 	var reg = getFormattedRegFromPage(main)
@@ -198,14 +197,24 @@ func viewVehicle(params viewVehicleParams) VehicleDetails {
 
 // Check lookup registration on the DVLA website
 func Check(reg string) VehicleDetails {
-	var vehicle VehicleDetails
-
-	params, err := initialLookup(reg)
+	// make the first request to DVLA to confirm the registration
+	document, err := initialLookup(reg)
 	if err != nil {
 		log.Fatal("Error performing initial lookup: ", err)
 	}
 
-	vehicle = viewVehicle(params)
+	// get the parameters for the next request from the returned page
+	params, err := getViewVehicleParamsFromPage(document)
+	if err != nil {
+		log.Fatal("Error getting parameters for secondary lookup: ", err)
+	}
 
-	return vehicle
+	// use the form parameters to perform the secondary lookup
+	document, err = secondaryLookup(params)
+	if err != nil {
+		log.Fatal("Error performing secondary lookup: ", err)
+	}
+
+	// use the parameters to make the final request
+	return getVehicleDataFromPage(document)
 }
