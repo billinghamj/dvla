@@ -20,7 +20,20 @@ type viewVehicleParams struct {
 
 // VehicleDetails structure to store vehicle details
 type VehicleDetails struct {
-	Registration, Make, Taxed, DateRegistered, YearOfManufacture, CylinderCapacity, CO2Emissions, FuelType, ExportMarker, TaxStatus, TaxDue, Colour, Wheelplan, Weight string
+	Registration      string `json:"registration"`
+	Make              string `json:"make"`
+	Taxed             string `json:"taxed"`
+	DateRegistered    string `json:"dateRegistered"`
+	YearOfManufacture string `json:"yearOfManufacture"`
+	CylinderCapacity  string `json:"cylinderCapacity"`
+	CO2Emissions      string `json:"co2Emissions"`
+	FuelType          string `json:"fuelType"`
+	ExportMarker      string `json:"exportMarker"`
+	TaxStatus         string `json:"taxStatus"`
+	TaxDue            string `json:"taxDue"`
+	Colour            string `json:"colour"`
+	Wheelplan         string `json:"wheelplan"`
+	Weight            string `json:"weight"`
 }
 
 // make the first request to the DVLA to get an HTML form for the next step
