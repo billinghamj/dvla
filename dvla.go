@@ -15,7 +15,7 @@ const viewVehicleURI = "https://vehicleenquiry.service.gov.uk/ViewVehicle"
 const viewVehicleFormAction = "/ViewVehicle"
 
 type viewVehicleParams struct {
-	viewstate, Vrm, Make, Colour, Correct, Continue string
+	viewstate, vrm, make, colour string
 }
 
 // VehicleDetails structure to store vehicle details
@@ -57,7 +57,7 @@ func initialLookup(reg string) (*goquery.Document, error) {
 
 // parse the ConfirmVehicle form for the parameters for the next stage
 func getViewVehicleParamsFromPage(document *goquery.Document) (*viewVehicleParams, error) {
-	params := viewVehicleParams{Correct: "False", Continue: ""}
+	var params viewVehicleParams
 
 	// find the form element in the returned HTML
 	forms := document.Find("form")
@@ -67,36 +67,39 @@ func getViewVehicleParamsFromPage(document *goquery.Document) (*viewVehicleParam
 		form := forms.Eq(f)
 		// look for the form with the target action
 		action, exists := form.Attr("action")
-		if exists && action == viewVehicleFormAction {
-			inputs := form.Find("input")
-			// iterate through all the form inputs
-			for i := range inputs.Nodes {
-				input := inputs.Eq(i)
-				id, exists := input.Attr("id")
-				// look for specific target input ids
-				if exists {
-					switch id {
-					case "viewstate":
-						params.viewstate = input.AttrOr("value", "")
-					case "Vrm":
-						params.Vrm = input.AttrOr("value", "")
-					case "Make":
-						params.Make = input.AttrOr("value", "")
-					case "Colour":
-						params.Colour = input.AttrOr("value", "")
-					default:
-					}
+		if !exists || action != viewVehicleFormAction {
+			continue
+		}
+
+		inputs := form.Find("input")
+		// iterate through all the form inputs
+		for i := range inputs.Nodes {
+			input := inputs.Eq(i)
+			id, exists := input.Attr("id")
+			// look for specific target input ids
+			if exists {
+				switch id {
+				case "viewstate":
+					params.viewstate = input.AttrOr("value", "")
+				case "Vrm":
+					params.vrm = input.AttrOr("value", "")
+				case "Make":
+					params.make = input.AttrOr("value", "")
+				case "Colour":
+					params.colour = input.AttrOr("value", "")
+				default:
 				}
 			}
 		}
+
+		break
 	}
 
 	// if any of the parameter parts are missing then return an error
-	if params.viewstate == "" || params.Vrm == "" || params.Make == "" || params.Colour == "" {
+	if params.viewstate == "" || params.vrm == "" || params.make == "" || params.colour == "" {
 		return nil, errors.New("Failed to retrieve params for next action")
 	}
 	// otherwise return the complete parameters
-	params.Correct = "True"
 	return &params, nil
 }
 
@@ -180,10 +183,10 @@ func secondaryLookup(params *viewVehicleParams) (*goquery.Document, error) {
 		viewVehicleURI,
 		url.Values{
 			"viewstate": {params.viewstate},
-			"Vrm":       {params.Vrm},
-			"Make":      {params.Make},
-			"Colour":    {params.Colour},
-			"Correct":   {params.Correct},
+			"Vrm":       {params.vrm},
+			"Make":      {params.make},
+			"Colour":    {params.colour},
+			"Correct":   {"True"},
 			"Continue":  {""},
 		},
 	)
