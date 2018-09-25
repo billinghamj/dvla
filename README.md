@@ -1,6 +1,6 @@
 # dvla
 
-dvla is a library which provides vehicle registration lookup via the DVLA GOV.UK website. 
+dvla is a library which provides vehicle registration lookup via the DVLA GOV.UK website.
 
 ## Table of Contents
 
@@ -36,7 +36,10 @@ import (
 
 func main() {
 	log.Println("regLookup")
-	vehicleDetails := dvla.Check("MT07TYW")
+	vehicleDetails, err := dvla.Check("MT07TYW")
+	if err != nil {
+		panic(err)
+	}
 
 	log.Printf("Make: '%s'", vehicleDetails.Make)
 	log.Printf("Colour: '%s'", vehicleDetails.Colour)

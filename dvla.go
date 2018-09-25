@@ -2,12 +2,12 @@ package dvla
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	pkgerr "github.com/pkg/errors"
 )
 
 const confirmVehicleURI = "https://vehicleenquiry.service.gov.uk/ConfirmVehicle"
@@ -47,7 +47,7 @@ func initialLookup(reg string) (*goquery.Document, error) {
 		},
 	)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer response.Body.Close()
 
@@ -56,8 +56,8 @@ func initialLookup(reg string) (*goquery.Document, error) {
 }
 
 // parse the ConfirmVehicle form for the parameters for the next stage
-func getViewVehicleParamsFromPage(document *goquery.Document) (viewVehicleParams, error) {
-	var params = viewVehicleParams{Correct: "False", Continue: ""}
+func getViewVehicleParamsFromPage(document *goquery.Document) (*viewVehicleParams, error) {
+	params := viewVehicleParams{Correct: "False", Continue: ""}
 
 	// find the form element in the returned HTML
 	forms := document.Find("form")
@@ -93,26 +93,25 @@ func getViewVehicleParamsFromPage(document *goquery.Document) (viewVehicleParams
 
 	// if any of the parameter parts are missing then return an error
 	if params.viewstate == "" || params.Vrm == "" || params.Make == "" || params.Colour == "" {
-		return params, errors.New("Failed to retrieve params for next action")
+		return nil, errors.New("Failed to retrieve params for next action")
 	}
 	// otherwise return the complete parameters
 	params.Correct = "True"
-	return params, nil
+	return &params, nil
 }
 
 // extract the formatted registration from the page
 func getFormattedRegFromPage(element *goquery.Selection) string {
-	var reg = ""
 	h1 := element.Find("h1")
 	if len(h1.Nodes) == 1 {
-		reg = h1.Text()
+		return strings.TrimSpace(h1.Text())
 	}
-	return strings.TrimSpace(reg)
+
+	return ""
 }
 
 func getTaxedStatusFromPage(element *goquery.Selection) (string, string) {
-	var taxStatus = ""
-	var taxDue = ""
+	var taxStatus, taxDue string
 
 	halfDiv := element.Find("div.column-half")
 
@@ -132,12 +131,12 @@ func getTaxedStatusFromPage(element *goquery.Selection) (string, string) {
 	return taxStatus, taxDue
 }
 
-func getVehicleDetailsFromPage(element *goquery.Selection) VehicleDetails {
+func getVehicleDetailsFromPage(element *goquery.Selection) (*VehicleDetails, error) {
 	var details VehicleDetails
 
 	div := element.Find("div.related-links")
 	if len(div.Nodes) < 1 {
-		return details
+		return nil, errors.New("Unable to find vehicle details - related links missing")
 	}
 	lis := div.Find("li")
 	for l := range lis.Nodes {
@@ -145,7 +144,7 @@ func getVehicleDetailsFromPage(element *goquery.Selection) VehicleDetails {
 		liText := li.Text()
 		strong := li.Find("strong")
 		if len(strong.Nodes) != 1 {
-			return details
+			return nil, errors.New("Unable to find vehicle details - item value missing")
 		}
 		switch {
 		case strings.Index(liText, "Vehicle make") > -1:
@@ -173,10 +172,10 @@ func getVehicleDetailsFromPage(element *goquery.Selection) VehicleDetails {
 		}
 	}
 
-	return details
+	return &details, nil
 }
 
-func secondaryLookup(params viewVehicleParams) (*goquery.Document, error) {
+func secondaryLookup(params *viewVehicleParams) (*goquery.Document, error) {
 	response, err := http.PostForm(
 		viewVehicleURI,
 		url.Values{
@@ -189,45 +188,56 @@ func secondaryLookup(params viewVehicleParams) (*goquery.Document, error) {
 		},
 	)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer response.Body.Close()
 
 	return goquery.NewDocumentFromReader(response.Body)
 }
 
-func getVehicleDataFromPage(document *goquery.Document) VehicleDetails {
+func getVehicleDataFromPage(document *goquery.Document) (*VehicleDetails, error) {
 	main := document.Find("main")
 
-	var reg = getFormattedRegFromPage(main)
+	reg := getFormattedRegFromPage(main)
 	taxStatus, taxDue := getTaxedStatusFromPage(main)
-	vehicleDetails := getVehicleDetailsFromPage(main)
+
+	vehicleDetails, err := getVehicleDetailsFromPage(main)
+	if err != nil {
+		return nil, err
+	}
+
 	vehicleDetails.Registration = reg
 	vehicleDetails.Taxed = taxStatus
 	vehicleDetails.TaxDue = taxDue
-	return vehicleDetails
+
+	return vehicleDetails, nil
 }
 
 // Check lookup registration on the DVLA website
-func Check(reg string) VehicleDetails {
+func Check(reg string) (*VehicleDetails, error) {
 	// make the first request to DVLA to confirm the registration
-	document, err := initialLookup(reg)
+	firstDoc, err := initialLookup(reg)
 	if err != nil {
-		log.Fatal("Error performing initial lookup: ", err)
+		return nil, pkgerr.Wrap(err, "Error performing initial lookup")
 	}
 
 	// get the parameters for the next request from the returned page
-	params, err := getViewVehicleParamsFromPage(document)
+	params, err := getViewVehicleParamsFromPage(firstDoc)
 	if err != nil {
-		log.Fatal("Error getting parameters for secondary lookup: ", err)
+		return nil, pkgerr.Wrap(err, "Error getting parameters for secondary lookup")
 	}
 
 	// use the form parameters to perform the secondary lookup
-	document, err = secondaryLookup(params)
+	secondDoc, err := secondaryLookup(params)
 	if err != nil {
-		log.Fatal("Error performing secondary lookup: ", err)
+		return nil, pkgerr.Wrap(err, "Error performing secondary lookup")
 	}
 
 	// use the parameters to make the final request
-	return getVehicleDataFromPage(document)
+	details, err := getVehicleDataFromPage(secondDoc)
+	if err != nil {
+		return nil, pkgerr.Wrap(err, "Error extracting vehicle details")
+	}
+
+	return details, nil
 }
