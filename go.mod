@@ -7,5 +7,5 @@ require (
 
 require (
 	github.com/andybalholm/cascadia v1.0.0 // indirect
-	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
 )
